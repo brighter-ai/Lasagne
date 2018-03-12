@@ -2,7 +2,7 @@
 Provides some minimal help with building loss expressions for training or
 validating a neural network.
 
-Five functions build element- or item-wise loss expressions from network
+Six functions build element- or item-wise loss expressions from network
 predictions and targets:
 
 .. autosummary::
@@ -13,6 +13,7 @@ predictions and targets:
     squared_error
     binary_hinge_loss
     multiclass_hinge_loss
+    huber_loss
 
 A convenience function aggregates such losses into a scalar expression
 suitable for differentiation:
@@ -86,6 +87,7 @@ __all__ = [
     "aggregate",
     "binary_hinge_loss",
     "multiclass_hinge_loss",
+    "huber_loss",
     "binary_accuracy",
     "categorical_accuracy"
 ]
@@ -149,6 +151,9 @@ def categorical_crossentropy(predictions, targets):
 
     .. math:: L_i = - \\sum_j{t_{i,j} \\log(p_{i,j})}
 
+    :math:`p` are the predictions, :math:`t` are the targets, :math:`i`
+    denotes the data point and :math:`j` denotes the class.
+
     Parameters
     ----------
     predictions : Theano 2D tensor
@@ -157,6 +162,8 @@ def categorical_crossentropy(predictions, targets):
     targets : Theano 2D tensor or 1D tensor
         Either targets in [0, 1] matching the layout of `predictions`, or
         a vector of int giving the correct class index per data point.
+        In the case of an integer vector argument, each element
+        represents the position of the '1' in a one-hot encoding.
 
     Returns
     -------
@@ -336,6 +343,53 @@ def multiclass_hinge_loss(predictions, targets, delta=1):
                                  (-1, num_cls-1))
     rest = theano.tensor.max(rest, axis=1)
     return theano.tensor.nnet.relu(rest - corrects + delta)
+
+
+def huber_loss(predictions, targets, delta=1):
+    """ Computes the huber loss between predictions and targets.
+
+    .. math:: L_i = \\frac{(p - t)^2}{2},  |p - t| \\le \\delta
+
+        L_i = \\delta (|p - t| - \\frac{\\delta}{2} ), |p - t| \\gt \\delta
+
+    Parameters
+    ----------
+    predictions : Theano 2D tensor or 1D tensor
+        Prediction outputs of a neural network.
+
+    targets : Theano 2D tensor or 1D tensor
+        Ground truth to which the prediction is to be compared
+        with. Either a vector or 2D Tensor.
+
+    delta : scalar, default 1
+        This delta value is defaulted to 1, for `SmoothL1Loss`
+        described in Fast-RCNN paper [1]_ .
+
+    Returns
+    -------
+    Theano tensor
+        An expression for the element-wise huber loss [2]_ .
+
+    Notes
+    -----
+    This is an alternative to the squared error for
+    regression problems.
+
+    References
+    ----------
+    .. [1] Ross Girshick et al (2015):
+           Fast RCNN
+           https://arxiv.org/pdf/1504.08083.pdf
+
+    .. [2] Huber, Peter et al (1964)
+           Robust Estimation of a Location Parameter
+           https://projecteuclid.org/euclid.aoms/1177703732
+    """
+    predictions, targets = align_targets(predictions, targets)
+    abs_diff = abs(targets - predictions)
+    ift = 0.5 * squared_error(targets, predictions)
+    iff = delta * (abs_diff - delta / 2.)
+    return theano.tensor.switch(abs_diff <= delta, ift, iff)
 
 
 def binary_accuracy(predictions, targets, threshold=0.5):
